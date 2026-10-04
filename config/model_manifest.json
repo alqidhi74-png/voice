@@ -1,0 +1,20 @@
+{
+  "embedding": {
+    "modelId": "speechbrain-ecapa-voxceleb",
+    "source": "speechbrain/spkrec-ecapa-voxceleb",
+    "embeddingDim": 192,
+    "sampleRate": 16000,
+    "artifactPath": null,
+    "exportedAt": null
+  },
+  "antispoof": {
+    "modelId": "spectral-heuristic-placeholder-v1",
+    "source": "spectral-heuristics",
+    "modelType": "heuristic_placeholder",
+    "productionReady": false,
+    "decisionThreshold": 0.5,
+    "sampleRate": 16000,
+    "artifactPath": null,
+    "exportedAt": null
+  }
+}

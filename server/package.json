@@ -1,0 +1,42 @@
+{
+  "name": "voice-identity-shield-server",
+  "version": "1.0.0",
+  "description": "Backend API server for Voice Identity Shield",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "setup-env": "node scripts/convert-json-to-env.js",
+    "test": "node --test --experimental-test-isolation=none test/security.test.js",
+    "check": "node --check src/index.js",
+    "security:audit": "node scripts/security-audit.js",
+    "deploy:indexes": "node scripts/deploy-firestore-indexes.js"
+  },
+  "keywords": [
+    "voice",
+    "biometrics",
+    "authentication",
+    "api"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/firestore": "^7.11.6",
+    "audio-buffer-utils": "^5.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "firebase-admin": "^12.0.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "wav": "^1.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

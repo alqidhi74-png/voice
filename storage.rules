@@ -1,0 +1,10 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // New audio is encrypted in local server storage. No direct client storage access.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

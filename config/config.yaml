@@ -1,0 +1,41 @@
+paths:
+  feature_store: "./data/features"
+  cache_dir: "./data/cache"
+  encryption_key_file: "./config/secret.key"
+  wav2vec2_model: "facebook/wav2vec2-base-960h"
+  hubert_model: "facebook/hubert-large-ls960-ft"
+  whisper_model: "openai/whisper-base"
+  ecapa_model: "speechbrain/spkrec-ecapa-voxceleb"
+  vggish_model: "harritaylor/ft_finetuned_vggish"
+  openl3_model: "openl3"
+  model_registry: "./data/models"
+
+audio:
+  target_sample_rate: 16000
+  mono: true
+  max_duration_seconds: 30
+  trim_db: 40
+  pre_emphasis: 0.97
+  vad_sensitivity: 0.5
+
+comparison:
+  cosine_threshold: 0.72
+  euclidean_threshold: 0.45
+  dtw_threshold: 0.65
+  ensemble_weights:
+    cosine: 0.5
+    euclidean: 0.2
+    dtw: 0.3
+
+model:
+  default_classifier: "random_forest"
+  random_state: 42
+  train_test_split: 0.2
+  imbalance_strategy: "class_weight"
+
+security:
+  aes_key_env: "VOICE_ID_AES_KEY"
+  aes_key_length: 32
+  encrypt_voiceprints: true
+
+

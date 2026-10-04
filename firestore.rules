@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All biometric and audit access goes through the authenticated Express API.
+    // Firebase Admin SDK bypasses these client rules by design.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

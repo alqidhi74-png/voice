@@ -1,0 +1,79 @@
+[debug] [2026-10-04T03:22:07.299Z] ----------------------------------------------------------------------
+[debug] [2026-10-04T03:22:07.308Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\HP\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only firestore:indexes firestore:rules storage --project voice-50766 --non-interactive
+[debug] [2026-10-04T03:22:07.309Z] CLI Version:   15.15.0
+[debug] [2026-10-04T03:22:07.309Z] Platform:      win32
+[debug] [2026-10-04T03:22:07.310Z] Node Version:  v22.15.0
+[debug] [2026-10-04T03:22:07.311Z] Time:          Sun Oct 04 2026 07:22:07 GMT+0400 (Gulf Standard Time)
+[debug] [2026-10-04T03:22:07.311Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-10-04T03:22:07.328Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2026-10-04T03:23:03.309Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-10-04T03:23:03.311Z] > authorizing via signed-in user (alqidhi30@gmail.com)
+[debug] [2026-10-04T03:23:03.312Z] [iam] checking project voice-50766 for permissions ["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]
+[debug] [2026-10-04T03:23:03.323Z] Checked if tokens are valid: false, expires at: 1776873978290
+[debug] [2026-10-04T03:23:03.324Z] Checked if tokens are valid: false, expires at: 1776873978290
+[debug] [2026-10-04T03:23:03.327Z] > refreshing access token with scopes: []
+[debug] [2026-10-04T03:23:03.332Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-10-04T03:23:03.333Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-10-04T03:23:03.814Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-10-04T03:23:03.815Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-10-04T03:23:03.850Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/voice-50766:testIamPermissions [none]
+[debug] [2026-10-04T03:23:03.852Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/voice-50766:testIamPermissions  x-goog-user-project=voice-50766
+[debug] [2026-10-04T03:23:03.853Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/voice-50766:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]}
+[debug] [2026-10-04T03:23:04.579Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-10-04T03:23:04.580Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[debug] [2026-10-04T03:23:05.715Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/voice-50766:testIamPermissions 403
+[debug] [2026-10-04T03:23:05.716Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/voice-50766:testIamPermissions {"error":{"code":403,"message":"Caller does not have required permission to use project voice-50766. Grant the caller the roles/serviceusage.serviceUsageConsumer role, or a custom role with the serviceusage.services.use permission, by visiting https://console.developers.google.com/iam-admin/iam?project=voice-50766 and then retry. Propagation of the new permission may take a few minutes.","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"USER_PROJECT_DENIED","domain":"googleapis.com","metadata":{"consumer":"projects/voice-50766","consoleUrl":"https://console.developers.google.com/iam-admin/iam?project=voice-50766","containerInfo":"voice-50766","service":"cloudresourcemanager.googleapis.com"}},{"@type":"type.googleapis.com/google.rpc.LocalizedMessage","locale":"en-US","message":"Caller does not have required permission to use project voice-50766. Grant the caller the roles/serviceusage.serviceUsageConsumer role, or a custom role with the serviceusage.services.use permission, by visiting https://console.developers.google.com/iam-admin/iam?project=voice-50766 and then retry. Propagation of the new permission may take a few minutes."},{"@type":"type.googleapis.com/google.rpc.Help","links":[{"description":"Google developer console IAM admin","url":"https://console.developers.google.com/iam-admin/iam?project=voice-50766"}]}]}}
+[debug] [2026-10-04T03:23:05.725Z] [iam] error while checking permissions, command may fail: Request to https://cloudresourcemanager.googleapis.com/v1/projects/voice-50766:testIamPermissions had HTTP Error: 403, Caller does not have required permission to use project voice-50766. Grant the caller the roles/serviceusage.serviceUsageConsumer role, or a custom role with the serviceusage.services.use permission, by visiting https://console.developers.google.com/iam-admin/iam?project=voice-50766 and then retry. Propagation of the new permission may take a few minutes.
+[info] 
+[info] === Deploying to 'voice-50766'...
+[info] 
+[info] i  deploying storage, firestore 
+[info] i  storage: ensuring required API firebasestorage.googleapis.com is enabled... 
+[debug] [2026-10-04T03:23:05.755Z] Checked if tokens are valid: true, expires at: 1791087782815
+[debug] [2026-10-04T03:23:05.755Z] Checked if tokens are valid: true, expires at: 1791087782815
+[debug] [2026-10-04T03:23:05.756Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/voice-50766/services/firebasestorage.googleapis.com [none]
+[debug] [2026-10-04T03:23:05.756Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/voice-50766/services/firebasestorage.googleapis.com  x-goog-user-project=voice-50766
+[debug] [2026-10-04T03:23:07.608Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/voice-50766/services/firebasestorage.googleapis.com 403
+[debug] [2026-10-04T03:23:07.608Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/voice-50766/services/firebasestorage.googleapis.com [omitted]
+[error] 
+[error] Error: Request to https://serviceusage.googleapis.com/v1/projects/voice-50766/services/firebasestorage.googleapis.com had HTTP Error: 403, Caller does not have required permission to use project voice-50766. Grant the caller the roles/serviceusage.serviceUsageConsumer role, or a custom role with the serviceusage.services.use permission, by visiting https://console.developers.google.com/iam-admin/iam?project=voice-50766 and then retry. Propagation of the new permission may take a few minutes.
+[debug] [2026-10-04T03:23:08.041Z] Error Context: {
+  "body": {
+    "error": {
+      "code": 403,
+      "message": "Caller does not have required permission to use project voice-50766. Grant the caller the roles/serviceusage.serviceUsageConsumer role, or a custom role with the serviceusage.services.use permission, by visiting https://console.developers.google.com/iam-admin/iam?project=voice-50766 and then retry. Propagation of the new permission may take a few minutes.",
+      "status": "PERMISSION_DENIED",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+          "reason": "USER_PROJECT_DENIED",
+          "domain": "googleapis.com",
+          "metadata": {
+            "consumer": "projects/voice-50766",
+            "containerInfo": "voice-50766",
+            "consoleUrl": "https://console.developers.google.com/iam-admin/iam?project=voice-50766",
+            "service": "serviceusage.googleapis.com"
+          }
+        },
+        {
+          "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+          "locale": "en-US",
+          "message": "Caller does not have required permission to use project voice-50766. Grant the caller the roles/serviceusage.serviceUsageConsumer role, or a custom role with the serviceusage.services.use permission, by visiting https://console.developers.google.com/iam-admin/iam?project=voice-50766 and then retry. Propagation of the new permission may take a few minutes."
+        },
+        {
+          "@type": "type.googleapis.com/google.rpc.Help",
+          "links": [
+            {
+              "description": "Google developer console IAM admin",
+              "url": "https://console.developers.google.com/iam-admin/iam?project=voice-50766"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 403
+  }
+}
