@@ -32,9 +32,9 @@ export const AuthProvider = ({ children }) => {
   }
 
   // Login user
-  const login = async (email, password) => {
+  const login = async (identifier, password) => {
     try {
-      const result = await authApi.login(email, password)
+      const result = await authApi.login(identifier, password)
       
       if (result.success) {
         setCurrentUser(result.user)

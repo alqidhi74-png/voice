@@ -8,10 +8,12 @@ import { signInWithGoogle as googleSignIn } from '../services/oauth'
 import LightRays from '../components/LightRays'
 import PasswordStrength from '../components/PasswordStrength'
 import { evaluatePassword } from '../utils/passwordPolicy'
+import { isValidPersonName, normalizePersonName } from '../utils/inputValidation'
 
 const Register = () => {
   const [formData, setFormData] = useState({
     displayName: '',
+    username: '',
     email: '',
     password: '',
     confirmPassword: ''
@@ -59,6 +61,11 @@ const Register = () => {
     setError('')
 
     // Validation
+    if (!isValidPersonName(formData.displayName)) {
+      setError('Full name must contain letters and spaces only')
+      return
+    }
+
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match')
       return
@@ -73,7 +80,8 @@ const Register = () => {
 
     // Prepare user data for backend
     const userData = {
-      displayName: formData.displayName,
+      displayName: normalizePersonName(formData.displayName),
+      username: formData.username,
       // Age, phone, gender, country will be null initially
       // Users can add them later in their profile
       age: null,
@@ -85,7 +93,11 @@ const Register = () => {
     const result = await register(formData.email, formData.password, userData)
     
     if (result.success) {
-      navigate(result.requiresEmailVerification ? '/verify-email' : '/dashboard')
+      navigate(result.requiresEmailVerification ? '/verify-email' : '/dashboard', {
+        state: result.requiresEmailVerification
+          ? { verificationEmailSent: result.verificationEmailSent }
+          : undefined,
+      })
     } else {
       setError(result.error || 'Failed to create account')
     }
@@ -196,10 +208,40 @@ const Register = () => {
                     type="text"
                     autoComplete="name"
                     required
+                    minLength={2}
+                    maxLength={80}
                     value={formData.displayName}
                     onChange={handleChange}
                     className="w-full pl-12 pr-4 py-3.5 bg-dark/60 border border-border/50 rounded-xl text-text-primary placeholder-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all duration-300 hover:border-primary/30"
                     placeholder="John Doe"
+                  />
+                </div>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.25 }}
+              >
+                <label htmlFor="username" className="block text-sm font-semibold text-text-primary mb-2.5">
+                  Username
+                </label>
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary font-semibold">@</div>
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    autoComplete="username"
+                    required
+                    minLength={3}
+                    maxLength={30}
+                    pattern="[A-Za-z0-9](?:[A-Za-z0-9._-]{1,28}[A-Za-z0-9])?"
+                    value={formData.username}
+                    onChange={handleChange}
+                    className="w-full pl-12 pr-4 py-3.5 bg-dark/60 border border-border/50 rounded-xl text-text-primary placeholder-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all duration-300 hover:border-primary/30"
+                    placeholder="voice.user"
+                    title="3-30 characters using letters, numbers, dots, underscores, or hyphens"
                   />
                 </div>
               </motion.div>

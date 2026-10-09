@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
@@ -8,7 +8,7 @@ import { signInWithGoogle as googleSignIn } from '../services/oauth'
 import LightRays from '../components/LightRays'
 
 const Login = () => {
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
@@ -19,11 +19,16 @@ const Login = () => {
   const { login, currentUser, checkAuth, setAuthUser } = useAuth()
   const { showToast } = useToast()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const passwordResetSucceeded = searchParams.get('passwordReset') === 'success'
 
   // Redirect to dashboard if user is already authenticated (e.g., after OAuth redirect)
   useEffect(() => {
     if (currentUser) {
-      navigate(currentUser.emailVerified ? '/dashboard' : '/verify-email', { replace: true })
+      const destination = currentUser.emailVerified
+        ? currentUser.role === 'admin' ? '/admin' : '/dashboard'
+        : '/verify-email'
+      navigate(destination, { replace: true })
     }
   }, [currentUser, navigate])
 
@@ -40,11 +45,14 @@ const Login = () => {
 
     const result = mfaChallenge
       ? await completeMfaLogin(mfaChallenge, mfaCode)
-      : await login(email, password)
+      : await login(identifier, password)
     
     if (result.success) {
       setAuthUser?.(result.user)
-      navigate(result.user?.emailVerified === false ? '/verify-email' : '/dashboard')
+      const destination = result.user?.emailVerified === false
+        ? '/verify-email'
+        : result.user?.role === 'admin' ? '/admin' : '/dashboard'
+      navigate(destination)
     } else if (result.mfaRequired) {
       setMfaChallenge(result.challengeToken)
       setError('')
@@ -69,7 +77,7 @@ const Login = () => {
         if (oauthResult.success) {
           setAuthUser?.(oauthResult.user)
           await checkAuth?.()
-          navigate('/dashboard')
+          navigate(oauthResult.user?.role === 'admin' ? '/admin' : '/dashboard')
         } else {
           setError(oauthResult.error || 'Failed to sign in with Google')
         }
@@ -139,14 +147,20 @@ const Login = () => {
               </motion.div>
             )}
 
+            {passwordResetSucceeded && !error && (
+              <div className="rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-text-primary">
+                Your password was reset successfully. Sign in with your email or username and new password.
+              </div>
+            )}
+
             {!mfaChallenge ? <div className="space-y-5">
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.2 }}
               >
-                <label htmlFor="email" className="block text-sm font-semibold text-text-primary mb-2.5">
-                  Email Address
+                <label htmlFor="identifier" className="block text-sm font-semibold text-text-primary mb-2.5">
+                  Email or Username
                 </label>
                 <div className="relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary">
@@ -155,15 +169,15 @@ const Login = () => {
                     </svg>
                   </div>
                   <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
+                    id="identifier"
+                    name="identifier"
+                    type="text"
+                    autoComplete="username"
                     required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
                     className="w-full pl-12 pr-4 py-3.5 bg-dark/60 border border-border/50 rounded-xl text-text-primary placeholder-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all duration-300 hover:border-primary/30"
-                    placeholder="you@example.com"
+                    placeholder="you@example.com or username"
                   />
                 </div>
               </motion.div>
@@ -213,7 +227,7 @@ const Login = () => {
                   </button>
                 </div>
                 <div className="mt-2 text-right">
-                  <Link to="/forgot-password" className="text-xs text-primary hover:text-accent">
+                  <Link to="/forgot-password" state={{ identifier }} className="text-xs text-primary hover:text-accent">
                     Forgot password?
                   </Link>
                 </div>

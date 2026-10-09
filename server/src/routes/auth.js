@@ -5,9 +5,23 @@ import { authenticate } from '../middleware/auth.js'
 import { authLimiter } from '../middleware/rateLimiter.js'
 import crypto from 'crypto'
 import { assertStrongPassword } from '../utils/passwordPolicy.js'
-import { cleanText, isValidEmail, normalizeEmail } from '../utils/validation.js'
+import {
+  cleanText,
+  isValidEmail,
+  isValidPersonName,
+  isValidUsername,
+  normalizeEmail,
+  normalizePersonName,
+  normalizeUsername,
+} from '../utils/validation.js'
 import { createOtpAuthUri, generateTotpSecret, verifyTotp } from '../services/totp.js'
 import { unwrapSecret, wrapSecret } from '../services/keyManagement.js'
+import {
+  clearLoginFailures,
+  getLoginLockState,
+  recordFailedLogin,
+} from '../services/accountSecurity.js'
+import { recordSecurityAlert } from '../services/securityNotifications.js'
 
 const router = express.Router()
 
@@ -33,10 +47,43 @@ const sendEmailAction = async (requestType, payload) => {
   if (!response.ok) throw new Error(data.error?.message || 'Unable to send email')
 }
 
+const getFrontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '')
+
+const sendVerificationEmail = async (idToken) => {
+  try {
+    await sendEmailAction('VERIFY_EMAIL', {
+      idToken,
+      continueUrl: `${getFrontendUrl()}/verify-email?verified=1`,
+    })
+  } catch (continueUrlError) {
+    logger.warn('Verification email continue URL was rejected; retrying with Firebase default handler', {
+      reason: continueUrlError.message,
+    })
+    await sendEmailAction('VERIFY_EMAIL', { idToken })
+  }
+}
+
+const resolveEmailFromIdentifier = async (value) => {
+  const identifier = cleanText(value || '', { maxLength: 254 })
+  if (isValidEmail(identifier)) return normalizeEmail(identifier)
+
+  const username = normalizeUsername(identifier)
+  if (!isValidUsername(username)) return ''
+
+  const usernameDoc = await getDbInstance().collection('usernames').doc(username).get()
+  if (!usernameDoc.exists) return ''
+
+  const uid = usernameDoc.data()?.uid
+  if (!uid || uid === 'pending') return ''
+  const userRecord = await getAuthInstance().getUser(uid)
+  return normalizeEmail(userRecord.email)
+}
+
 const publicUser = (record, profile = {}) => ({
   uid: record.uid,
   email: record.email,
   displayName: record.displayName,
+  username: profile.username || '',
   emailVerified: Boolean(record.emailVerified),
   role: record.customClaims?.role === 'admin' || (process.env.ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).includes(String(record.email || '').toLowerCase()) ? 'admin' : 'user',
   mfaEnabled: Boolean(profile.mfaEnabled),
@@ -50,7 +97,8 @@ router.post('/register', authLimiter, async (req, res) => {
   try {
     const { password, age, phoneNumber, gender, country } = req.body
     const email = normalizeEmail(req.body.email)
-    const displayName = cleanText(req.body.displayName || '', { maxLength: 80 })
+    const displayName = normalizePersonName(req.body.displayName)
+    const username = normalizeUsername(req.body.username)
 
     // Validation
     if (!isValidEmail(email) || typeof password !== 'string') {
@@ -60,37 +108,76 @@ router.post('/register', authLimiter, async (req, res) => {
       })
     }
 
-    assertStrongPassword(password)
-
-    // Create user in Firebase Auth
-    const auth = getAuthInstance()
-    const userRecord = await auth.createUser({
-      email,
-      password,
-      displayName: displayName || null,
-      emailVerified: false
-    })
-
-    // Create user profile in Firestore
-    const userProfile = {
-      email,
-      displayName: displayName || '',
-      age: age || null,
-      phoneNumber: phoneNumber || null,
-      gender: gender || null,
-      country: country || null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      lastLogin: null,
-      memberSince: new Date(),
-      registrationDate: new Date(),
-      role: 'user',
-      emailVerified: false,
-      mfaEnabled: false
+    if (!isValidUsername(username)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username must be 3-30 characters and use only letters, numbers, dots, underscores, or hyphens'
+      })
     }
 
+    if (!isValidPersonName(displayName)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Full name must contain letters and spaces only'
+      })
+    }
+
+    assertStrongPassword(password)
+
+    const auth = getAuthInstance()
     const db = getDbInstance()
-    await db.collection('users').doc(userRecord.uid).set(userProfile)
+    const usernameRef = db.collection('usernames').doc(username)
+    try {
+      await usernameRef.create({ uid: 'pending', email, createdAt: new Date() })
+    } catch (error) {
+      if (error.code === 6 || error.code === 'already-exists') {
+        return res.status(409).json({ success: false, error: 'Username is already taken' })
+      }
+      throw error
+    }
+
+    let userRecord
+    try {
+      userRecord = await auth.createUser({
+        email,
+        password,
+        displayName: displayName || null,
+        emailVerified: false
+      })
+
+      await usernameRef.set({ uid: userRecord.uid, email, updatedAt: new Date() })
+      await db.collection('users').doc(userRecord.uid).set({
+        email,
+        username,
+        usernameNormalized: username,
+        displayName: displayName || '',
+        age: age || null,
+        phoneNumber: phoneNumber || null,
+        gender: gender || null,
+        country: country || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastLogin: null,
+        memberSince: new Date(),
+        registrationDate: new Date(),
+        role: 'user',
+        accountStatus: 'active',
+        loginSecurity: {
+          failedAttempts: 0,
+          locked: false,
+          lockedAt: null,
+          unlockAvailableAt: null,
+          lockedUntil: null,
+          lastFailedAt: null
+        },
+        emailVerified: false,
+        mfaEnabled: false
+      })
+    } catch (error) {
+      await usernameRef.delete().catch(() => {})
+      if (userRecord?.uid) await auth.deleteUser(userRecord.uid).catch(() => {})
+      throw error
+    }
 
     // Sign in to get ID token (using Firebase Auth REST API)
     const { response: signInResponse, data: signInData } = await firebaseRequest('accounts:signInWithPassword', {
@@ -106,6 +193,7 @@ router.post('/register', authLimiter, async (req, res) => {
           user: {
             uid: userRecord.uid,
             email: userRecord.email,
+            username,
             displayName: userRecord.displayName
           },
           message: 'Account created. Please log in.'
@@ -117,7 +205,7 @@ router.post('/register', authLimiter, async (req, res) => {
 
     let verificationEmailSent = true
     try {
-      await sendEmailAction('VERIFY_EMAIL', { idToken: signInData.idToken })
+      await sendVerificationEmail(signInData.idToken)
     } catch (emailError) {
       verificationEmailSent = false
       logger.error('Verification email could not be sent:', emailError.message)
@@ -129,6 +217,7 @@ router.post('/register', authLimiter, async (req, res) => {
         user: {
           uid: userRecord.uid,
           email: userRecord.email,
+          username,
           displayName: userRecord.displayName,
           emailVerified: false,
           role: 'user',
@@ -180,13 +269,57 @@ router.post('/register', authLimiter, async (req, res) => {
  */
 router.post('/login', authLimiter, async (req, res) => {
   try {
-    const email = normalizeEmail(req.body.email)
+    const identifier = cleanText(req.body.identifier || req.body.email || '', { maxLength: 254 })
     const { password } = req.body
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       return res.status(400).json({
         success: false,
-        error: 'Email and password are required'
+        error: 'Email or username and password are required'
+      })
+    }
+
+    if (!isValidEmail(identifier) && !isValidUsername(identifier)) {
+      return res.status(400).json({ success: false, error: 'Enter a valid email address or username' })
+    }
+
+    const email = await resolveEmailFromIdentifier(identifier)
+    if (!email) {
+      return res.status(401).json({ success: false, error: 'Invalid email, username, or password' })
+    }
+
+    const auth = getAuthInstance()
+    let loginUserRecord
+    try {
+      loginUserRecord = await auth.getUserByEmail(email)
+    } catch (error) {
+      if (error.code === 'auth/user-not-found') {
+        return res.status(401).json({ success: false, error: 'Invalid email, username, or password' })
+      }
+      throw error
+    }
+
+    const loginProfileDoc = await getDbInstance().collection('users').doc(loginUserRecord.uid).get()
+    const loginProfile = loginProfileDoc.exists ? loginProfileDoc.data() : {}
+    if (loginUserRecord.disabled || loginProfile.accountStatus === 'blocked') {
+      return res.status(403).json({
+        success: false,
+        error: 'This account has been blocked by an administrator',
+        code: 'ACCOUNT_BLOCKED'
+      })
+    }
+
+    const existingLock = getLoginLockState(loginProfile.loginSecurity)
+    if (existingLock.locked) {
+      const lockMessage = existingLock.retryAfterSeconds > 0
+        ? `Account locked. An administrator can unlock it in ${existingLock.retryAfterSeconds} seconds`
+        : 'Account locked. Contact an administrator to unlock it'
+      return res.status(423).json({
+        success: false,
+        error: lockMessage,
+        code: 'ACCOUNT_LOCKED',
+        retryAfterSeconds: existingLock.retryAfterSeconds,
+        adminUnlockRequired: true
       })
     }
 
@@ -197,11 +330,33 @@ router.post('/login', authLimiter, async (req, res) => {
     })
 
     if (!response.ok) {
-      if (data.error?.message?.includes('INVALID_PASSWORD') || data.error?.message?.includes('EMAIL_NOT_FOUND') || data.error?.message?.includes('INVALID_EMAIL')) {
+      if (data.error?.message?.includes('INVALID_PASSWORD') || data.error?.message?.includes('INVALID_LOGIN_CREDENTIALS') || data.error?.message?.includes('EMAIL_NOT_FOUND') || data.error?.message?.includes('INVALID_EMAIL')) {
+        const failure = await recordFailedLogin(loginUserRecord.uid)
+        if (failure.locked) {
+          await recordSecurityAlert({
+            userId: loginUserRecord.uid,
+            type: 'account_locked',
+            severity: 'warning',
+            message: 'Account locked after three failed login attempts',
+            metadata: { unlockAvailableAt: failure.unlockAvailableAt?.toISOString?.() || null }
+          })
+          return res.status(423).json({
+            success: false,
+            error: 'Account locked after 3 failed attempts. An administrator can unlock it after 60 seconds',
+            code: 'ACCOUNT_LOCKED',
+            retryAfterSeconds: failure.retryAfterSeconds,
+            adminUnlockRequired: true
+          })
+        }
         return res.status(401).json({
           success: false,
-          error: 'Invalid email or password'
+          error: `Invalid email, username, or password. ${failure.attemptsRemaining} attempt${failure.attemptsRemaining === 1 ? '' : 's'} remaining`,
+          code: 'INVALID_CREDENTIALS',
+          attemptsRemaining: failure.attemptsRemaining
         })
+      }
+      if (data.error?.message?.includes('USER_DISABLED')) {
+        return res.status(403).json({ success: false, error: 'This account has been blocked by an administrator', code: 'ACCOUNT_BLOCKED' })
       }
       return res.status(401).json({
         success: false,
@@ -210,7 +365,6 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 
     // Verify the ID token to get user info
-    const auth = getAuthInstance()
     const decodedToken = await auth.verifyIdToken(data.idToken)
     const userId = decodedToken.uid
 
@@ -223,14 +377,13 @@ router.post('/login', authLimiter, async (req, res) => {
       const db = getDbInstance()
       const profileDoc = await db.collection('users').doc(userId).get()
       profileData = profileDoc.exists ? profileDoc.data() : {}
-      await db.collection('users').doc(userId).update({
-        lastLogin: new Date(),
-        updatedAt: new Date(),
-        emailVerified: Boolean(userRecord.emailVerified),
-      })
-    } catch (error) {
-      // If user profile doesn't exist, create it
-      if (error.code === 5) { // NOT_FOUND
+      if (profileDoc.exists) {
+        await db.collection('users').doc(userId).update({
+          lastLogin: new Date(),
+          updatedAt: new Date(),
+          emailVerified: Boolean(userRecord.emailVerified),
+        })
+      } else {
         const userProfile = {
           email: userRecord.email || email,
           displayName: userRecord.displayName || '',
@@ -244,12 +397,24 @@ router.post('/login', authLimiter, async (req, res) => {
           memberSince: new Date(),
           registrationDate: new Date(),
           role: 'user',
+          accountStatus: 'active',
+          loginSecurity: {
+            failedAttempts: 0,
+            locked: false,
+            lockedAt: null,
+            unlockAvailableAt: null,
+            lockedUntil: null,
+            lastFailedAt: null
+          },
           emailVerified: Boolean(userRecord.emailVerified),
           mfaEnabled: false
         }
-        const db = getDbInstance()
         await db.collection('users').doc(userId).set(userProfile)
       }
+      await clearLoginFailures(userId)
+    } catch (error) {
+      logger.error('Login profile update failed:', error.message)
+      throw error
     }
 
     logger.info('User logged in:', { uid: userId, email })
@@ -342,19 +507,94 @@ router.post('/mfa/verify-login', authLimiter, async (req, res) => {
 
 /** Send a password-reset email without revealing whether an account exists. */
 router.post('/forgot-password', authLimiter, async (req, res) => {
-  const email = normalizeEmail(req.body?.email)
-  if (!isValidEmail(email)) {
-    return res.status(400).json({ success: false, error: 'Enter a valid email address' })
+  const identifier = cleanText(req.body?.identifier || req.body?.email || '', { maxLength: 254 })
+  if (!isValidEmail(identifier) && !isValidUsername(identifier)) {
+    return res.status(400).json({ success: false, error: 'Enter a valid email address or username' })
   }
   try {
-    await sendEmailAction('PASSWORD_RESET', { email })
+    const email = await resolveEmailFromIdentifier(identifier)
+    if (email) {
+      await sendEmailAction('PASSWORD_RESET', {
+        email,
+        continueUrl: `${getFrontendUrl()}/login?passwordReset=success`,
+      })
+    }
   } catch (error) {
     logger.warn('Password reset request was not delivered', { reason: error.message })
   }
   res.json({
     success: true,
-    message: 'If an account exists for that email, a password-reset link has been sent.',
+    message: 'If an account exists for that email or username, a password-reset link has been sent.',
   })
+})
+
+/** Validate a Firebase password-reset code before displaying the new-password form. */
+router.post('/password-reset/verify', authLimiter, async (req, res) => {
+  const oobCode = cleanText(req.body?.oobCode || '', { maxLength: 2048 })
+  if (!oobCode) {
+    return res.status(400).json({ success: false, error: 'Password-reset code is required' })
+  }
+
+  try {
+    const { response, data } = await firebaseRequest('accounts:resetPassword', { oobCode })
+    if (!response.ok || data.requestType !== 'PASSWORD_RESET') {
+      return res.status(400).json({ success: false, error: 'This password-reset link is invalid or has expired' })
+    }
+    res.json({ success: true, data: { email: data.email || '' } })
+  } catch (error) {
+    logger.warn('Password reset code verification failed', { reason: error.message })
+    res.status(400).json({ success: false, error: 'This password-reset link is invalid or has expired' })
+  }
+})
+
+/** Apply a new password using a one-time Firebase password-reset code. */
+router.post('/password-reset/confirm', authLimiter, async (req, res) => {
+  const oobCode = cleanText(req.body?.oobCode || '', { maxLength: 2048 })
+  const newPassword = String(req.body?.newPassword || '')
+  if (!oobCode) {
+    return res.status(400).json({ success: false, error: 'Password-reset code is required' })
+  }
+
+  try {
+    assertStrongPassword(newPassword)
+    const { response, data } = await firebaseRequest('accounts:resetPassword', { oobCode, newPassword })
+    if (!response.ok) {
+      return res.status(400).json({ success: false, error: 'This password-reset link is invalid or has expired' })
+    }
+
+    if (data.email) {
+      const record = await getAuthInstance().getUserByEmail(data.email)
+      await getAuthInstance().revokeRefreshTokens(record.uid)
+      await clearLoginFailures(record.uid)
+    }
+
+    res.json({ success: true, message: 'Password reset successfully. Sign in with your new password.' })
+  } catch (error) {
+    if (error.code === 'WEAK_PASSWORD') {
+      return res.status(400).json({ success: false, error: error.message, details: error.details })
+    }
+    logger.warn('Password reset confirmation failed', { reason: error.message })
+    res.status(400).json({ success: false, error: 'Unable to reset password. Request a new link and try again.' })
+  }
+})
+
+/** Apply an email-verification action code from the public email action handler. */
+router.post('/email-action/verify', authLimiter, async (req, res) => {
+  const oobCode = cleanText(req.body?.oobCode || '', { maxLength: 2048 })
+  if (!oobCode) {
+    return res.status(400).json({ success: false, error: 'Email-verification code is required' })
+  }
+
+  try {
+    const { response } = await firebaseRequest('accounts:update', { oobCode })
+    if (!response.ok) {
+      return res.status(400).json({ success: false, error: 'This email-verification link is invalid or has expired' })
+    }
+    res.json({ success: true, message: 'Email verified successfully. You can now sign in.' })
+  } catch (error) {
+    logger.warn('Email action verification failed', { reason: error.message })
+    res.status(400).json({ success: false, error: 'This email-verification link is invalid or has expired' })
+  }
 })
 
 /** Exchange a Firebase refresh token for a fresh ID token (also refreshes email_verified). */
@@ -388,7 +628,7 @@ router.post('/refresh', authLimiter, async (req, res) => {
 router.post('/resend-verification', authenticate, authLimiter, async (req, res) => {
   try {
     const token = req.headers.authorization.slice('Bearer '.length)
-    await sendEmailAction('VERIFY_EMAIL', { idToken: token })
+    await sendVerificationEmail(token)
     res.json({ success: true, message: 'Verification email sent.' })
   } catch (error) {
     logger.error('Resend verification error:', error)
@@ -414,6 +654,7 @@ router.post('/change-password', authenticate, authLimiter, async (req, res) => {
     const auth = getAuthInstance()
     await auth.updateUser(req.user.uid, { password: newPassword })
     await auth.revokeRefreshTokens(req.user.uid)
+    await clearLoginFailures(req.user.uid)
     logger.info('Password changed and sessions revoked', { uid: req.user.uid })
     res.json({ success: true, message: 'Password changed. Please sign in again.' })
   } catch (error) {
@@ -537,6 +778,13 @@ router.get('/me', authenticate, async (req, res) => {
     const userDoc = await db.collection('users').doc(userId).get()
     const profileData = userDoc.exists ? userDoc.data() : null
 
+    if (userDoc.exists && Boolean(profileData?.emailVerified) !== Boolean(userRecord.emailVerified)) {
+      await userDoc.ref.set({
+        emailVerified: Boolean(userRecord.emailVerified),
+        updatedAt: new Date(),
+      }, { merge: true })
+    }
+
     res.json({
       success: true,
       data: {
@@ -645,6 +893,10 @@ router.post('/oauth/google', authLimiter, async (req, res) => {
     const userDoc = await userDocRef.get()
     const timestamp = new Date()
 
+    if (userRecord.disabled || userDoc.data()?.accountStatus === 'blocked') {
+      return res.status(403).json({ success: false, error: 'This account has been blocked by an administrator', code: 'ACCOUNT_BLOCKED' })
+    }
+
     if (userDoc.exists) {
       await userDocRef.update({
         lastLogin: timestamp,
@@ -664,6 +916,15 @@ router.post('/oauth/google', authLimiter, async (req, res) => {
         memberSince: timestamp,
         registrationDate: timestamp,
         role: 'user',
+        accountStatus: 'active',
+        loginSecurity: {
+          failedAttempts: 0,
+          locked: false,
+          lockedAt: null,
+          unlockAvailableAt: null,
+          lockedUntil: null,
+          lastFailedAt: null
+        },
         emailVerified: true,
         mfaEnabled: false
       }
@@ -716,7 +977,11 @@ router.post('/oauth/apple', authLimiter, async (req, res) => {
     let userRecord
     try {
       userRecord = await auth.getUser(uid)
-      
+      const profileDocument = await db.collection('users').doc(uid).get()
+      if (userRecord.disabled || profileDocument.data()?.accountStatus === 'blocked') {
+        return res.status(403).json({ success: false, error: 'This account has been blocked by an administrator', code: 'ACCOUNT_BLOCKED' })
+      }
+
       // Update last login
       await db.collection('users').doc(uid).update({
         lastLogin: new Date(),
@@ -746,6 +1011,15 @@ router.post('/oauth/apple', authLimiter, async (req, res) => {
           memberSince: new Date(),
           registrationDate: new Date(),
           role: 'user',
+          accountStatus: 'active',
+          loginSecurity: {
+            failedAttempts: 0,
+            locked: false,
+            lockedAt: null,
+            unlockAvailableAt: null,
+            lockedUntil: null,
+            lastFailedAt: null
+          },
           emailVerified: true,
           mfaEnabled: false
         }

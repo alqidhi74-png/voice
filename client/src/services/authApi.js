@@ -100,6 +100,7 @@ export const register = async (email, password, userData) => {
       body: JSON.stringify({
         email,
         password,
+        username: userData.username,
         displayName: userData.displayName,
         age: userData.age,
         phoneNumber: userData.phoneNumber,
@@ -128,12 +129,12 @@ export const register = async (email, password, userData) => {
 /**
  * Login user
  */
-export const login = async (email, password) => {
+export const login = async (identifier, password) => {
   try {
     const data = await apiRequest('/auth/login', {
       method: 'POST',
       skipAuth: true,
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ identifier, password })
     })
 
     if (data.success && data.data) {
@@ -174,10 +175,28 @@ export const completeMfaLogin = async (challengeToken, code) => {
   }
 }
 
-export const forgotPassword = async (email) => apiRequest('/auth/forgot-password', {
+export const forgotPassword = async (identifier) => apiRequest('/auth/forgot-password', {
   method: 'POST',
   skipAuth: true,
-  body: JSON.stringify({ email }),
+  body: JSON.stringify({ identifier }),
+})
+
+export const verifyPasswordResetCode = async (oobCode) => apiRequest('/auth/password-reset/verify', {
+  method: 'POST',
+  skipAuth: true,
+  body: JSON.stringify({ oobCode }),
+})
+
+export const confirmPasswordReset = async (oobCode, newPassword) => apiRequest('/auth/password-reset/confirm', {
+  method: 'POST',
+  skipAuth: true,
+  body: JSON.stringify({ oobCode, newPassword }),
+})
+
+export const confirmEmailVerification = async (oobCode) => apiRequest('/auth/email-action/verify', {
+  method: 'POST',
+  skipAuth: true,
+  body: JSON.stringify({ oobCode }),
 })
 
 export const resendVerificationEmail = async () => apiRequest('/auth/resend-verification', { method: 'POST' })

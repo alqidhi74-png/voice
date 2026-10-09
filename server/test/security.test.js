@@ -1,13 +1,27 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { evaluatePassword } from '../src/utils/passwordPolicy.js'
-import { containsDangerousKeys, isSafeDocumentId, isValidEmail } from '../src/utils/validation.js'
+import {
+  containsDangerousKeys,
+  isSafeDocumentId,
+  isValidEmail,
+  isValidPersonName,
+  isValidUsername,
+  normalizeUsername,
+} from '../src/utils/validation.js'
 import { generateTotp, verifyTotp } from '../src/services/totp.js'
-import { needsRewrap, unwrapDataKey, wrapDataKey } from '../src/services/keyManagement.js'
+import { needsRewrap, unwrapDataKey, unwrapSecret, wrapDataKey, wrapSecret } from '../src/services/keyManagement.js'
 import { signAuditEvent, verifyAuditEventIntegrity } from '../src/services/auditLogger.js'
 import { sanitizeResponsePayload } from '../src/middleware/responseSecurity.js'
 import { validateSecurityConfiguration } from '../src/config/security.js'
 import { evaluatePassword as evaluateClientPassword } from '../../client/src/utils/passwordPolicy.js'
+import { isValidPersonName as isValidClientPersonName } from '../../client/src/utils/inputValidation.js'
+import {
+  ACCOUNT_LOCKOUT_MS,
+  calculateFailedLoginUpdate,
+  getLoginLockState,
+  MAX_FAILED_LOGIN_ATTEMPTS
+} from '../src/services/accountSecurity.js'
 import { access, mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -25,6 +39,44 @@ test('password policy accepts a strong password and rejects common weak values',
   assert.equal(evaluatePassword('Correct-Horse7!').valid, true)
   assert.equal(evaluatePassword('password123').valid, false)
   assert.equal(evaluatePassword('NoSymbols123').valid, false)
+})
+
+test('account locks on the third failure and only becomes admin-unlockable after 60 seconds', () => {
+  const now = Date.parse('2026-10-09T10:00:00.000Z')
+  let security = { failedAttempts: 0, locked: false, unlockAvailableAt: null }
+
+  for (let attempt = 1; attempt <= MAX_FAILED_LOGIN_ATTEMPTS; attempt += 1) {
+    const update = calculateFailedLoginUpdate(security, now + attempt)
+    security = {
+      failedAttempts: update.failedAttempts,
+      locked: update.locked,
+      lockedAt: update.locked ? new Date(now + attempt) : null,
+      unlockAvailableAt: update.unlockAvailableAt
+    }
+    assert.equal(update.locked, attempt === MAX_FAILED_LOGIN_ATTEMPTS)
+  }
+
+  const state = getLoginLockState(security, now + MAX_FAILED_LOGIN_ATTEMPTS)
+  assert.equal(state.locked, true)
+  assert.equal(state.canUnlock, false)
+  assert.equal(state.retryAfterSeconds, ACCOUNT_LOCKOUT_MS / 1000)
+  const afterCooldown = getLoginLockState(security, now + ACCOUNT_LOCKOUT_MS + 10)
+  assert.equal(afterCooldown.locked, true)
+  assert.equal(afterCooldown.canUnlock, true)
+  assert.equal(afterCooldown.retryAfterSeconds, 0)
+})
+
+test('a locked account cannot accumulate more failed attempts before admin unlock', () => {
+  const now = Date.parse('2026-10-09T10:00:00.000Z')
+  const update = calculateFailedLoginUpdate({
+    failedAttempts: 3,
+    locked: true,
+    lockedAt: new Date(now - ACCOUNT_LOCKOUT_MS),
+    unlockAvailableAt: new Date(now - 1)
+  }, now)
+  assert.equal(update.failedAttempts, 3)
+  assert.equal(update.locked, true)
+  assert.equal(update.canUnlock, true)
 })
 
 test('client and server enforce the same password outcomes', () => {
@@ -47,6 +99,27 @@ test('email and Firestore document IDs are strictly validated', () => {
   assert.equal(isSafeDocumentId('../other-user'), false)
 })
 
+test('usernames are normalized and limited to safe unique identifiers', () => {
+  assert.equal(normalizeUsername('  Voice.User_7  '), 'voice.user_7')
+  assert.equal(isValidUsername('voice.user_7'), true)
+  assert.equal(isValidUsername('ab'), false)
+  assert.equal(isValidUsername('invalid username'), false)
+  assert.equal(isValidUsername('../admin'), false)
+})
+
+test('personal names accept letters and spaces while rejecting injection-like input', () => {
+  for (const [candidate, expected] of [
+    ['Talal Ahmed', true],
+    ['طلال أحمد', true],
+    ["OR '1'='1'", false],
+    ['Robert; DROP TABLE users', false],
+    ['User123', false],
+  ]) {
+    assert.equal(isValidPersonName(candidate), expected)
+    assert.equal(isValidClientPersonName(candidate), expected)
+  }
+})
+
 test('TOTP implements deterministic RFC-style time windows', () => {
   const secret = 'JBSWY3DPEHPK3PXP'
   const timestamp = 1_700_000_000_000
@@ -62,6 +135,12 @@ test('data keys are wrapped and tampering is detected by AES-GCM', () => {
   const wrapped = wrapDataKey(key)
   assert.deepEqual(unwrapDataKey(wrapped), key)
   assert.throws(() => unwrapDataKey({ ...wrapped, data: `${wrapped.data.slice(0, -2)}AA` }))
+})
+
+test('encrypted JSON payloads round-trip without object string coercion', () => {
+  const payload = { message: 'Secure notification', metadata: { status: 'new' } }
+  const decrypted = JSON.parse(unwrapSecret(wrapSecret(JSON.stringify(payload))).toString('utf8'))
+  assert.deepEqual(decrypted, payload)
 })
 
 test('versioned master keys decrypt old data and mark it for re-wrapping', () => {

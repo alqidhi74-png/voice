@@ -7,27 +7,27 @@ const TOAST_DURATION = 4000
 
 const TYPE_CONFIG = {
   success: {
-    container: 'bg-green-500/15 border-green-500/40 text-green-200',
-    iconBg: 'bg-green-500/20',
-    iconColor: 'text-green-400',
+    container: 'bg-white border-emerald-200 border-l-4 border-l-emerald-500 text-slate-800',
+    iconBg: 'bg-emerald-100',
+    iconColor: 'text-emerald-700',
     iconPath: 'M5 13l4 4L19 7',
   },
   error: {
-    container: 'bg-red-500/15 border-red-500/40 text-red-200',
-    iconBg: 'bg-red-500/20',
-    iconColor: 'text-red-400',
+    container: 'bg-white border-red-200 border-l-4 border-l-red-500 text-slate-800',
+    iconBg: 'bg-red-100',
+    iconColor: 'text-red-700',
     iconPath: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   },
   warning: {
-    container: 'bg-yellow-500/15 border-yellow-500/40 text-yellow-200',
-    iconBg: 'bg-yellow-500/20',
-    iconColor: 'text-yellow-400',
+    container: 'bg-white border-amber-200 border-l-4 border-l-amber-500 text-slate-800',
+    iconBg: 'bg-amber-100',
+    iconColor: 'text-amber-700',
     iconPath: 'M12 9v2m0 4h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z',
   },
   info: {
-    container: 'bg-primary/15 border-primary/40 text-primary',
-    iconBg: 'bg-primary/20',
-    iconColor: 'text-primary',
+    container: 'bg-white border-sky-200 border-l-4 border-l-sky-500 text-slate-800',
+    iconBg: 'bg-sky-100',
+    iconColor: 'text-sky-700',
     iconPath: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   },
 }
@@ -88,7 +88,7 @@ export const ToastProvider = ({ children }) => {
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{ opacity: 0, x: 80, scale: 0.9 }}
                 transition={{ duration: 0.25, ease: 'easeOut' }}
-                className={`pointer-events-auto overflow-hidden rounded-xl border px-4 py-3 shadow-2xl backdrop-blur-md ${config.container}`}
+                className={`pointer-events-auto overflow-hidden rounded-xl border px-4 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.22)] ring-1 ring-slate-900/5 ${config.container}`}
               >
                 <div className="flex items-start gap-3">
                   <div className={`mt-1 flex h-9 w-9 items-center justify-center rounded-full ${config.iconBg}`}>
@@ -97,13 +97,13 @@ export const ToastProvider = ({ children }) => {
                     </svg>
                   </div>
                   <div className="flex-1">
-                    {toast.title && <p className="text-sm font-semibold">{toast.title}</p>}
-                    <p className="text-sm leading-relaxed">{toast.message}</p>
+                    {toast.title && <p className="text-sm font-bold text-slate-950">{toast.title}</p>}
+                    <p className="mt-0.5 text-sm font-medium leading-relaxed text-slate-700">{toast.message}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => removeToast(toast.id)}
-                    className="ml-2 mt-1 text-sm opacity-70 transition-opacity hover:opacity-100"
+                    className="ml-2 mt-1 text-sm text-slate-500 transition-colors hover:text-slate-900"
                   >
                     <span className="sr-only">Dismiss</span>
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -127,5 +127,4 @@ export const useToast = () => {
   }
   return context
 }
-
 

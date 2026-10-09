@@ -64,7 +64,9 @@ export const unwrapSecret = (wrapped) => {
   if (!wrapped?.iv || !wrapped?.tag || !wrapped?.data) throw new Error('Invalid wrapped secret')
   const { key } = resolveMasterKey(wrapped.keyVersion ?? 1)
   const decrypted = decryptData(wrapped, key)
-  return Buffer.isBuffer(decrypted) ? decrypted : Buffer.from(String(decrypted), 'utf8')
+  if (Buffer.isBuffer(decrypted)) return decrypted
+  if (typeof decrypted === 'string') return Buffer.from(decrypted, 'utf8')
+  return Buffer.from(JSON.stringify(decrypted), 'utf8')
 }
 
 export const needsRewrap = (wrapped) => {

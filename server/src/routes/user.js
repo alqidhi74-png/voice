@@ -3,13 +3,27 @@ import admin from 'firebase-admin'
 import { getFirestore } from '../config/firebase.js'
 import { authenticate, requireRecentAuthentication } from '../middleware/auth.js'
 import { logger } from '../utils/logger.js'
-import { cleanText } from '../utils/validation.js'
+import {
+  cleanText,
+  isSafeDocumentId,
+  isValidPersonName,
+  isValidUsername,
+  normalizePersonName,
+  normalizeUsername,
+} from '../utils/validation.js'
 import { wrapDataKey } from '../services/keyManagement.js'
 import {
   createLocalAudioReference,
   deleteOwnedLocalAudio,
   parseLocalAudioReference
 } from '../services/localAudioStorage.js'
+import {
+  listUserFeedback,
+  listUserNotifications,
+  markUserNotificationRead,
+  storeEncryptedFeedback
+} from '../services/securityNotifications.js'
+import { openEventStream } from '../services/eventStream.js'
 
 const router = express.Router()
 
@@ -145,6 +159,7 @@ router.get('/profile', authenticate, async (req, res) => {
     // Convert Firestore timestamps to ISO strings
     const profile = {
       email: data.email || req.user.email || '',
+      username: data.username || '',
       displayName: data.displayName || '',
       age: data.age ?? null,
       phoneNumber: data.phoneNumber ?? null,
@@ -185,7 +200,7 @@ router.put('/profile', authenticate, async (req, res) => {
     const updates = req.body
 
     // Validate updates
-    const allowedFields = ['displayName', 'age', 'phoneNumber', 'gender', 'country']
+    const allowedFields = ['username', 'displayName', 'age', 'phoneNumber', 'gender', 'country']
     const filteredUpdates = {}
     
     for (const field of allowedFields) {
@@ -195,7 +210,20 @@ router.put('/profile', authenticate, async (req, res) => {
     }
 
     if (Object.hasOwn(filteredUpdates, 'displayName')) {
-      filteredUpdates.displayName = cleanText(filteredUpdates.displayName || '', { maxLength: 80 })
+      filteredUpdates.displayName = normalizePersonName(filteredUpdates.displayName)
+      if (!isValidPersonName(filteredUpdates.displayName)) {
+        return res.status(400).json({ success: false, error: 'Full name must contain letters and spaces only' })
+      }
+    }
+    if (Object.hasOwn(filteredUpdates, 'username')) {
+      filteredUpdates.username = normalizeUsername(filteredUpdates.username)
+      if (!isValidUsername(filteredUpdates.username)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Username must be 3-30 characters and use only letters, numbers, dots, underscores, or hyphens'
+        })
+      }
+      filteredUpdates.usernameNormalized = filteredUpdates.username
     }
     if (Object.hasOwn(filteredUpdates, 'country')) {
       filteredUpdates.country = filteredUpdates.country == null
@@ -227,7 +255,41 @@ router.put('/profile', authenticate, async (req, res) => {
     filteredUpdates.updatedAt = new Date()
 
     const db = getDbInstance()
-    await db.collection('users').doc(userId).update(filteredUpdates)
+    const userRef = db.collection('users').doc(userId)
+    const currentProfile = (await userRef.get()).data() || {}
+    const previousUsername = normalizeUsername(currentProfile.username)
+    const nextUsername = filteredUpdates.username
+    let reservedUsernameRef = null
+
+    if (nextUsername && nextUsername !== previousUsername) {
+      const nextRef = db.collection('usernames').doc(nextUsername)
+      try {
+        await nextRef.create({ uid: userId, email: req.user.email || '', createdAt: new Date() })
+        reservedUsernameRef = nextRef
+      } catch (error) {
+        if (error.code === 6 || error.code === 'already-exists') {
+          const existing = await nextRef.get()
+          if (existing.data()?.uid !== userId) {
+            return res.status(409).json({ success: false, error: 'Username is already taken' })
+          }
+        } else {
+          throw error
+        }
+      }
+    }
+
+    try {
+      await userRef.update(filteredUpdates)
+    } catch (error) {
+      if (reservedUsernameRef) await reservedUsernameRef.delete().catch(() => {})
+      throw error
+    }
+
+    if (nextUsername && previousUsername && nextUsername !== previousUsername) {
+      const previousRef = db.collection('usernames').doc(previousUsername)
+      const previousDoc = await previousRef.get()
+      if (previousDoc.data()?.uid === userId) await previousRef.delete()
+    }
 
     logger.info('User profile updated:', { userId })
 
@@ -583,6 +645,69 @@ router.delete('/voiceprint', authenticate, async (req, res) => {
   }
 })
 
+/** Store user feedback encrypted at rest with AES-256-GCM. */
+router.get('/feedback', async (req, res) => {
+  try {
+    const feedback = await listUserFeedback(req.user.uid, 50)
+    res.json({ success: true, data: { feedback, count: feedback.length } })
+  } catch (error) {
+    logger.error('User feedback history failed:', error)
+    res.status(500).json({ success: false, error: 'Failed to load feedback history' })
+  }
+})
+
+router.post('/feedback', async (req, res) => {
+  try {
+    if (typeof req.body?.message !== 'string' || !req.body.message.trim()) {
+      return res.status(400).json({ success: false, error: 'Feedback message is required' })
+    }
+    const category = cleanText(req.body?.category || 'general', { maxLength: 20 }).toLowerCase()
+    const message = cleanText(req.body?.message, { maxLength: 2000, allowEmpty: false })
+    if (!['general', 'bug', 'security', 'suggestion'].includes(category)) {
+      return res.status(400).json({ success: false, error: 'Invalid feedback category' })
+    }
+    const feedbackId = await storeEncryptedFeedback({
+      userId: req.user.uid,
+      category,
+      message
+    })
+    logger.info('Encrypted feedback submitted', { userId: req.user.uid, feedbackId, category })
+    res.status(201).json({
+      success: true,
+      message: 'Feedback submitted securely',
+      data: { feedbackId, encrypted: true }
+    })
+  } catch (error) {
+    logger.error('Encrypted feedback submission failed:', error)
+    res.status(500).json({ success: false, error: 'Failed to submit feedback' })
+  }
+})
+
+router.get('/notifications', async (req, res) => {
+  try {
+    const notifications = await listUserNotifications(req.user.uid, 50)
+    res.json({ success: true, data: { notifications, count: notifications.length } })
+  } catch (error) {
+    logger.error('User notification list failed:', error)
+    res.status(500).json({ success: false, error: 'Failed to load notifications' })
+  }
+})
+
+router.patch('/notifications/:notificationId/read', async (req, res) => {
+  try {
+    const { notificationId } = req.params
+    if (!isSafeDocumentId(notificationId)) return res.status(400).json({ success: false, error: 'Invalid notification' })
+    const found = await markUserNotificationRead({ notificationId, userId: req.user.uid })
+    if (!found) return res.status(404).json({ success: false, error: 'Notification not found' })
+    res.json({ success: true, message: 'Notification marked as read' })
+  } catch (error) {
+    logger.error('User notification update failed:', error)
+    res.status(500).json({ success: false, error: 'Failed to update notification' })
+  }
+})
+
+router.get('/events', (req, res) => openEventStream(req, res, `user:${req.user.uid}`))
+
 /**
  * DELETE /api/user/account
  * Irreversibly erase the authenticated user's biometric files and records.
@@ -622,7 +747,11 @@ router.delete('/account', authenticate, requireRecentAuthentication(300), async 
 
     await deleteQueryInBatches(db.collection('enrollments').where('userId', '==', userId))
     await deleteQueryInBatches(db.collection('audit_events').where('userId', '==', userId))
+    await deleteQueryInBatches(db.collection('security_alerts').where('userId', '==', userId))
+    await deleteQueryInBatches(db.collection('encrypted_feedback').where('userId', '==', userId))
+    await deleteQueryInBatches(db.collection('user_notifications').where('userId', '==', userId))
     await deleteQueryInBatches(db.collection('mfaChallenges').where('uid', '==', userId))
+    await deleteQueryInBatches(db.collection('usernames').where('uid', '==', userId))
     await db.collection('users').doc(userId).delete()
     await admin.auth().deleteUser(userId)
 

@@ -61,3 +61,29 @@ limited to administrators, while ordinary users can access only records tied to 
 - Configure a Firestore TTL policy for `mfaChallenges.expiresAt` so expired documents are removed.
 - Create the first administrator with `ADMIN_EMAILS`, sign in, assign permanent roles through
   the admin screen/API, then remove the bootstrap value if desired.
+# Account security and access control
+
+## Authentication and passwords
+
+- Email/password authentication is handled by Firebase Authentication. The application never stores plaintext passwords or password hashes in Firestore.
+- Firebase Authentication stores passwords using its managed password-hashing configuration. Password verification and password reset are delegated to Firebase rather than implemented in application code.
+- After three consecutive invalid password attempts, the account is locked.
+- The lock has a 60-second security cooldown. It does not disappear automatically: only an authenticated administrator can unlock the account after the cooldown.
+- A successful login, password reset, or password change clears the failed-attempt counter.
+
+## Roles and account status
+
+- Server routes enforce the `user` and `admin` roles from trusted Firebase custom claims. Client-side route guards are only an additional UI control.
+- Administration endpoints require a verified Firebase token, a verified email, and the `admin` role.
+- An administrator can mark an account `active` or `blocked`. Blocking also disables the Firebase Authentication user and revokes existing refresh tokens.
+- Firestore client access is denied; protected data is available only through the authenticated Express API.
+
+## Encrypted alerts and feedback
+
+- Security-alert details and user-feedback messages are encrypted at rest with AES-256-GCM before being stored in Firestore.
+- Only authenticated administrators can retrieve decrypted alerts and feedback through the administration API.
+- Encryption uses the configured versioned master-key mechanism (`VOICEPRINT_MASTER_KEYS`, or the compatible legacy master key).
+- Administrators can mark alerts read/unread, update feedback to `new`, `in_progress`, or `resolved`, and send an encrypted response.
+- Feedback responses create encrypted user notifications. Authenticated Server-Sent Events deliver admin and user updates instantly while the browser is open.
+- Native browser notifications are used after the administrator grants browser permission.
+- Custom email delivery is optional. Set `EMAIL_NOTIFICATIONS_ENABLED=true` and configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`. If SMTP is disabled or unavailable, the database operation and live notification still succeed.

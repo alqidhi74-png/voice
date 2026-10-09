@@ -16,7 +16,7 @@ const Navbar = () => {
       { path: '/enroll', label: 'Enroll' },
       { path: '/dashboard', label: 'Dashboard' },
       { path: '/security', label: 'Security' },
-      ...(currentUser?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : []),
+      { path: '/feedback', label: 'Feedback' },
     ] : []),
   ]
 

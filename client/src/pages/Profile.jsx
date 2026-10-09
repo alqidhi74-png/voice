@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getUserProfile, updateUserProfile, getMemberSinceString } from '../services/userApi'
 import PhoneInput from '../components/PhoneInput'
 import { useToast } from '../contexts/ToastContext'
+import { isValidPersonName, normalizePersonName } from '../utils/inputValidation'
 
 const Profile = () => {
   const { currentUser } = useAuth()
@@ -16,6 +17,7 @@ const Profile = () => {
   const [success, setSuccess] = useState('')
 
   const [formData, setFormData] = useState({
+    username: '',
     displayName: '',
     age: '',
     phoneNumber: '',
@@ -50,6 +52,7 @@ const Profile = () => {
         const data = result.data
         setProfile(data)
         setFormData({
+          username: data.username || '',
           displayName: data.displayName || '',
           age: data.age || '',
           phoneNumber: data.phoneNumber || '',
@@ -78,6 +81,16 @@ const Profile = () => {
     setSuccess('')
 
     // Validation
+    if (!isValidPersonName(formData.displayName)) {
+      setError('Full name must contain letters and spaces only')
+      return
+    }
+
+    if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,28}[A-Za-z0-9])?$/.test(formData.username)) {
+      setError('Username must be 3-30 characters and use only letters, numbers, dots, underscores, or hyphens')
+      return
+    }
+
     if (formData.age && (isNaN(formData.age) || formData.age < 13 || formData.age > 120)) {
       setError('Please enter a valid age (13-120)')
       return
@@ -86,7 +99,8 @@ const Profile = () => {
     setSaving(true)
 
     const updates = {
-      displayName: formData.displayName || '',
+      username: formData.username,
+      displayName: normalizePersonName(formData.displayName),
       age: formData.age ? parseInt(formData.age) : null,
       phoneNumber: formData.phoneNumber || null,
       gender: formData.gender || null,
@@ -113,6 +127,7 @@ const Profile = () => {
     // Reset form data to original profile
     if (profile) {
       setFormData({
+        username: profile.username || '',
         displayName: profile.displayName || '',
         age: profile.age || '',
         phoneNumber: profile.phoneNumber || '',
@@ -217,6 +232,36 @@ const Profile = () => {
                 </p>
               </div>
 
+              {/* Username */}
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-2">
+                  Username
+                </label>
+                {editing ? (
+                  <input
+                    type="text"
+                    name="username"
+                    minLength={3}
+                    maxLength={30}
+                    pattern="[A-Za-z0-9](?:[A-Za-z0-9._-]{1,28}[A-Za-z0-9])?"
+                    value={formData.username}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-3 bg-dark border border-border rounded-xl text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                    placeholder="voice.user"
+                    title="3-30 characters using letters, numbers, dots, underscores, or hyphens"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={profile.username || 'Not set'}
+                    disabled
+                    className="w-full px-4 py-3 bg-dark/50 border border-border rounded-xl text-text-primary disabled:cursor-not-allowed"
+                  />
+                )}
+                {!profile.username && <p className="mt-1 text-xs text-text-secondary">Set a username to sign in and reset your password without typing your email.</p>}
+              </div>
+
               {/* Display Name */}
               <div>
                 <label className="block text-sm font-medium text-text-primary mb-2">
@@ -226,6 +271,9 @@ const Profile = () => {
                   <input
                     type="text"
                     name="displayName"
+                    required
+                    minLength={2}
+                    maxLength={80}
                     value={formData.displayName}
                     onChange={handleChange}
                     className="w-full px-4 py-3 bg-dark border border-border rounded-xl text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
